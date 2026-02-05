@@ -12,25 +12,25 @@ on:
         required: false
         default: |
           {
-            "✨ feat": "Story",
-            "🐛 fix": "Bug",
-            "🚑 hotfix": "Bug",
-            "🧪 spike": "Task",
-            "✅ test": "Task",
-            "♻️ refactor": "Task",
-            "🎨 style": "Task",
-            "📕 docs": "Task",
-            "🧹 chore": "Task",
-            "🔧 config": "Task",
-            "📦 deps": "Task",
-            "🏗️ build": "Task",
-            "🚀 deploy": "Task",
-            "🏷️ release": "Task",
-            "🛡️ security": "Task",
-            "⚡ perf": "Task",
-            "🔄 rename": "Task",
-            "🗑️ remove": "Task",
-            "🔖 init": "Task"
+            "✨ feat": "스토리",
+            "🐛 fix": "버그",
+            "🚑 hotfix": "버그",
+            "🧪 spike": "작업",
+            "✅ test": "작업",
+            "♻️ refactor": "작업",
+            "🎨 style": "작업",
+            "📕 docs": "작업",
+            "🧹 chore": "작업",
+            "🔧 config": "작업",
+            "📦 deps": "작업",
+            "🏗️ build": "작업",
+            "🚀 deploy": "작업",
+            "🏷️ release": "작업",
+            "🛡️ security": "작업",
+            "⚡ perf": "작업",
+            "🔄 rename": "작업",
+            "🗑️ remove": "작업",
+            "🔖 init": "작업"
           }
 
       priority_map_json:
