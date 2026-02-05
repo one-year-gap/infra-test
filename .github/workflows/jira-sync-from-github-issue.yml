@@ -15,6 +15,7 @@ on:
             "✨ feat": "스토리",
             "🐛 fix": "버그",
             "🚑 hotfix": "버그",
+
             "🧪 spike": "작업",
             "✅ test": "작업",
             "♻️ refactor": "작업",
@@ -96,8 +97,6 @@ jobs:
             const hasLinkedLabel = labels.includes(process.env.LINKED_LABEL);
             core.setOutput("skip", (hasKey || hasLinkedLabel) ? "true" : "false");
 
-      # ✅ (중요) labels.*.name 같은 배열 표현식 금지
-      # -> 여기서 문자열 3개(type/area/priority)로 뽑아서 outputs로 전달
       - name: Extract type/area/priority labels
         id: pick
         if: steps.guard.outputs.skip != 'true'
@@ -107,7 +106,11 @@ jobs:
             const labels = (context.payload.issue.labels || [])
               .map(l => typeof l === "string" ? l : l.name);
 
-            const TYPE = ["✨ feat","🐛 fix","♻️ refactor","🎨 style","✅ test","📕 docs","🧹 chore","🔧 config","📦 deps","🏗️ build","🚀 deploy","🏷️ release","🚑 hotfix","🛡️ security","⚡ perf","🧪 spike","🔄 rename","🗑️ remove","🔖 init"];
+            const TYPE = [
+              "✨ feat","🐛 fix","♻️ refactor","🎨 style","✅ test","📕 docs","🧹 chore","🔧 config","📦 deps",
+              "🏗️ build","🚀 deploy","🏷️ release","🚑 hotfix","🛡️ security","⚡ perf","🧪 spike",
+              "🔄 rename","🗑️ remove","🔖 init"
+            ];
             const AREA = ["🗂️ area: BE","🖥️ area: FE","🗄️ area: DB","☁️ area: INFRA","🔐 area: AUTH"];
             const PRIORITY = ["🔥 priority: P0","⚠️ priority: P1","📝 priority: P2","🧊 priority: P3"];
 
@@ -172,10 +175,12 @@ jobs:
           curl -sS -u "$JIRA_EMAIL:$JIRA_TOKEN" \
             "$JIRA_BASE/rest/api/3/project/$PROJ" > proj.json
 
-          TYPE_NAME=$(echo "$TYPE_MAP" | jq -r --arg k "$TYPE_LABEL" '.[$k] // "Task"')
+          TYPE_NAME=$(echo "$TYPE_MAP" | jq -r --arg k "$TYPE_LABEL" '.[$k] // "작업"')
           TYPE_ID=$(jq -r --arg n "$TYPE_NAME" '.issueTypes[] | select(.name==$n) | .id' proj.json | head -n 1)
 
-          # ✅ 요구사항: type_id == null이면 즉시 실패
+          echo "TYPE_LABEL=$TYPE_LABEL"
+          echo "TYPE_NAME=$TYPE_NAME"
+
           if [ -z "${TYPE_ID:-}" ] || [ "$TYPE_ID" = "null" ]; then
             echo "❌ Jira IssueType ID not found"
             echo "- picked type label: $TYPE_LABEL"
@@ -214,3 +219,104 @@ jobs:
           echo "type_id=$TYPE_ID" >> "$GITHUB_OUTPUT"
           echo "priority_id=$PRIO_ID" >> "$GITHUB_OUTPUT"
           echo "component_id=$COMP_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Create Jira issue
+        id: create
+        if: steps.guard.outputs.skip != 'true' && steps.pick.outputs.missing == ''
+        env:
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_BASE: ${{ secrets.JIRA_BASE_URL }}
+          PROJ: ${{ inputs.jira_project_key }}
+
+          GH_TITLE: ${{ github.event.issue.title }}
+          GH_BODY: ${{ github.event.issue.body }}
+          GH_URL: ${{ github.event.issue.html_url }}
+
+          TYPE_ID: ${{ steps.jira_meta.outputs.type_id }}
+          PRIO_ID: ${{ steps.jira_meta.outputs.priority_id }}
+          COMP_ID: ${{ steps.jira_meta.outputs.component_id }}
+        run: |
+          set -euo pipefail
+
+          DESC="GitHub Issue: $GH_URL\n\n$GH_BODY"
+
+          jq -n \
+            --arg proj "$PROJ" \
+            --arg tid "$TYPE_ID" \
+            --arg pid "$PRIO_ID" \
+            --arg sum "$GH_TITLE" \
+            --arg desc "$DESC" \
+            '{
+              fields: {
+                project: { key: $proj },
+                issuetype: { id: $tid },
+                priority: { id: $pid },
+                summary: $sum,
+                description: {
+                  type: "doc",
+                  version: 1,
+                  content: [{
+                    type: "paragraph",
+                    content: [{ type: "text", text: $desc }]
+                  }]
+                }
+              }
+            }' > payload.json
+
+          if [ "$COMP_ID" != "null" ] && [ -n "$COMP_ID" ]; then
+            jq '.fields.components = [{id: $id}]' --arg id "$COMP_ID" payload.json > tmp.json && mv tmp.json payload.json
+          fi
+
+          http=$(curl -sS -u "$JIRA_EMAIL:$JIRA_TOKEN" \
+            -o res.json -w "%{http_code}" \
+            -X POST -H "Content-Type: application/json" \
+            -d @payload.json "$JIRA_BASE/rest/api/3/issue")
+
+          if [ "$http" -lt 200 ] || [ "$http" -ge 300 ]; then
+            echo "❌ Jira create failed. HTTP=$http"
+            cat res.json | jq .
+            exit 1
+          fi
+
+          JIRA_KEY=$(jq -r '.key' res.json)
+          if [ -z "$JIRA_KEY" ] || [ "$JIRA_KEY" = "null" ]; then
+            echo "❌ Jira create returned no key"
+            cat res.json | jq .
+            exit 1
+          fi
+
+          echo "jira_key=$JIRA_KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Update GitHub Issue
+        if: steps.guard.outputs.skip != 'true' && steps.create.outputs.jira_key != ''
+        uses: actions/github-script@v7
+        env:
+          JIRA_KEY: ${{ steps.create.outputs.jira_key }}
+          JIRA_BASE: ${{ secrets.JIRA_BASE_URL }}
+          LABEL: ${{ inputs.github_linked_label }}
+        with:
+          script: |
+            const { JIRA_KEY, JIRA_BASE, LABEL } = process.env;
+            const issue = context.payload.issue;
+
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              title: `[${JIRA_KEY}] ${issue.title}`
+            });
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: `✅ Jira 티켓 생성됨: [${JIRA_KEY}](${JIRA_BASE}/browse/${JIRA_KEY})`
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: [LABEL]
+            });
