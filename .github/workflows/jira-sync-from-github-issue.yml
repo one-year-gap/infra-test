@@ -174,7 +174,7 @@ jobs:
         with:
           script: |
             const { JIRA_KEY, TYPE_LABEL } = process.env;
-          
+           
             const typeMap = {
               "✨ feat": "feat", "🐛 fix": "fix", "🚑 hotfix": "hotfix",
               "♻️ refactor": "refactor", "🎨 style": "style", "✅ test": "test",
@@ -202,7 +202,7 @@ jobs:
               });
               
               core.info(`Branch created: ${branchName}`);
-              core.exportVariable('BRANCH_NAME', branchName);
+              core.setOutput('branch_name', branchName);
             } catch (error) {
               core.warning(`Branch creation failed or already exists: ${error.message}`);
               core.setOutput('branch_name', branchName);
@@ -230,6 +230,7 @@ jobs:
         env:
           JIRA_KEY: ${{ steps.create.outputs.jira_key }}
           JIRA_BASE: ${{ secrets.JIRA_BASE_URL }}
+          BRANCH_NAME: ${{ steps.create_branch.outputs.branch_name }}
         with:
           script: |
             const { JIRA_KEY, JIRA_BASE } = process.env;
