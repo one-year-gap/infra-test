@@ -85,7 +85,7 @@ body:
   - type: input
     id: endDate
     attributes:
-      label: '🏁 종료 날짜'
+      label: '🏁 종료 날짜 '
       placeholder: 'YYYY-MM-DD'
     validations:
       required: true
