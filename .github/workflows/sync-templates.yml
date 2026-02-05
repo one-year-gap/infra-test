@@ -37,7 +37,7 @@ jobs:
                 path: '.github/ISSUE_TEMPLATE/bug-or-feature.yml',
                 message: 'chore: sync issue template from infra',
                 content: Buffer.from(issueTemplate).toString('base64'),
-                sha: await getSha(owner, repo, '.github/ISSUE_TEMPLATE/bug-or-feature.yml')
+                sha: await getSha(owner, repo, '.github/ISSUE_TEMPLATE/issue_form.yml')
               });
 
               
@@ -46,7 +46,7 @@ jobs:
                 path: '.github/pull_request_template.md',
                 message: 'chore: sync PR template from infra',
                 content: Buffer.from(prTemplate).toString('base64'),
-                sha: await getSha(owner, repo, '.github/PULL_REQUEST_TEMPLATE.md')
+                sha: await getSha(owner, repo, '.github/pull_request_template.md')
               });
             }
 
