@@ -64,6 +64,17 @@ body:
         - "🧊 priority: P3"
     validations:
       required: true
+    - type: dropdown
+    id: team
+    attributes:
+      label: "Team (필수)"
+      description: "team을 선택하세요."
+      options:
+        - "Customer Team"
+        - "Counselor Team"
+        - "Admin Team"
+        - "Infra Team"
+        - "Auth Team"
   - type: input
     id: startDate
     attributes:
@@ -78,17 +89,7 @@ body:
       placeholder: 'YYYY-MM-DD'
     validations:
       required: true
-  - type: dropdown
-    id: team
-    attributes:
-      label: "Priority (필수)"
-      description: "team을 선택하세요."
-      options:
-        - "Customer Team"
-        - "Counselor Team"
-        - "Admin Team"
-        - "Infra Team"
-        - "Auth Team"
+
   - type: textarea
     id: description
     attributes:
