@@ -144,7 +144,7 @@ jobs:
                 parent: (if $parent != "" then { key: $parent } else null end),
                 duedate: (if $end != "" then $end else null end),
                 ($sf): (if $start != "" then $start else null end),
-                ($sp): (if $sprint != "null" then ($sprint | tonumber) else null end)
+                ($sp): (if $sprint != "null" then ($sprint | tonumber) else null end),
                 ($tf): (if $team != "null" then $team else null end)
               }
             }' | jq 'del(.fields.parent | select(. == null)) | del(.fields | .[] | select(. == null))')
