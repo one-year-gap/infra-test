@@ -131,6 +131,7 @@ jobs:
             --arg start "${{ steps.parse.outputs.startDate }}" \
             --arg end "${{ steps.parse.outputs.endDate }}" \
             --arg sprint "$SPRINT_ID" \
+            --arg team "$TEAM_ID" \
             --arg sf "$START_FIELD" \
             --arg sp "$SPRINT_FIELD" \
             --arg tf "$TEAM_FIELD" \
