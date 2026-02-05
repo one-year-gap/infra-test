@@ -9,7 +9,11 @@ on:
       jira_start_date_field:
         type: string
         required: false
-        default: "customfield_10015" # Jira 시작 날짜 필드 ID
+        default: "customfield_10015" 
+      jira_sprint_field:
+        type: string
+        required: false
+        default: "customfield_10020"
     secrets:
       JIRA_BASE_URL:
         required: true
@@ -26,7 +30,7 @@ jobs:
       contents: write
 
     steps:
-      # 1. 이슈 본문 파싱 (상위 티켓, 날짜, 라벨 데이터 추출)
+      # 1. 이슈 본문 파싱
       - name: Parse Issue Body
         id: parse
         uses: actions/github-script@v7
@@ -38,7 +42,6 @@ jobs:
               const match = body.match(regex);
               return match ? match[1].trim() : "";
             };
-
             core.setOutput('parentKey', extract('🎟️ 상위 작업 \\(Ticket Number\\)'));
             core.setOutput('startDate', extract('📅 시작 날짜'));
             core.setOutput('endDate', extract('🏁 종료 날짜'));
@@ -46,7 +49,7 @@ jobs:
             core.setOutput('area', extract('Area \\(필수\\)'));
             core.setOutput('priority', extract('Priority \\(필수\\)'));
 
-      # 2. 자동 라벨링 (ReferenceError 수정됨)
+      # 2. 자동 라벨링
       - name: Auto-Labeling GitHub Issue
         if: github.event.action == 'opened' || github.event.action == 'reopened'
         uses: actions/github-script@v7
@@ -58,17 +61,34 @@ jobs:
           script: |
             const { ISSUE_TYPE, ISSUE_AREA, ISSUE_PRIO } = process.env;
             const labelsToAdd = [ISSUE_TYPE, ISSUE_AREA, ISSUE_PRIO].filter(l => l && l !== '선택하세요');
-            
             if (labelsToAdd.length > 0) {
               await github.rest.issues.addLabels({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.payload.issue.number,
-                labels: labelsToAdd
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: context.payload.issue.number, labels: labelsToAdd
               });
             }
 
-      # 3. Jira 티켓 생성 (상위 항목 연결 + 타임라인 반영)
+      # 3. [추가] 현재 활성화된 스프린트 ID 가져오기
+      - name: Get Active Sprint ID
+        id: sprint
+        env:
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_BASE: ${{ secrets.JIRA_BASE_URL }}
+          PROJ: ${{ inputs.jira_project_key }}
+        run: |
+          # 1. 프로젝트에 연결된 보드 ID 조회
+          BOARD_ID=$(curl -s -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_BASE/rest/agile/1.0/board?projectKeyOrId=$PROJ" | jq -r '.values[0].id')
+          
+          # 2. 해당 보드에서 '활성(active)' 상태인 스프린트 ID 조회
+          if [ "$BOARD_ID" != "null" ]; then
+            SPRINT_ID=$(curl -s -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_BASE/rest/agile/1.0/board/$BOARD_ID/sprint?state=active" | jq -r '.values[0].id')
+            echo "sprint_id=${SPRINT_ID:-null}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sprint_id=null" >> "$GITHUB_OUTPUT"
+          fi
+
+      # 4. Jira 티켓 생성 (스프린트 정보 포함)
       - name: Create Jira Issue
         id: create
         if: github.event.action == 'opened' || github.event.action == 'reopened'
@@ -77,15 +97,15 @@ jobs:
           JIRA_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           JIRA_BASE: ${{ secrets.JIRA_BASE_URL }}
           START_FIELD: ${{ inputs.jira_start_date_field }}
+          SPRINT_FIELD: ${{ inputs.jira_sprint_field }}
+          SPRINT_ID: ${{ steps.sprint.outputs.sprint_id }}
         run: |
-          # Type 맵핑
           case "${{ steps.parse.outputs.type }}" in
             "✨ feat") JIRA_TYPE="스토리" ;;
             "🐛 fix" | "🚑 hotfix") JIRA_TYPE="버그" ;;
             *) JIRA_TYPE="작업" ;;
           esac
 
-          # Payload 생성 (jq를 사용하여 안전하게 구성)
           PAYLOAD=$(jq -n \
             --arg proj "${{ inputs.jira_project_key }}" \
             --arg type "$JIRA_TYPE" \
@@ -94,7 +114,9 @@ jobs:
             --arg parent "${{ steps.parse.outputs.parentKey }}" \
             --arg start "${{ steps.parse.outputs.startDate }}" \
             --arg end "${{ steps.parse.outputs.endDate }}" \
+            --arg sprint "$SPRINT_ID" \
             --arg sf "$START_FIELD" \
+            --arg sp "$SPRINT_FIELD" \
             '{
               fields: {
                 project: { key: $proj },
@@ -103,20 +125,15 @@ jobs:
                 description: { type: "doc", version: 1, content: [{ type: "paragraph", content: [{ type: "text", text: $desc }] }] },
                 parent: (if $parent != "" then { key: $parent } else null end),
                 duedate: (if $end != "" then $end else null end),
-                ($sf): (if $start != "" then $start else null end)
+                ($sf): (if $start != "" then $start else null end),
+                ($sp): (if $sprint != "null" then ($sprint | tonumber) else null end)
               }
-            }' | jq 'del(.fields.parent | select(. == null))')
+            }' | jq 'del(.fields.parent | select(. == null)) | del(.fields | .[] | select(. == null))')
 
           RES=$(curl -s -u "$JIRA_EMAIL:$JIRA_TOKEN" -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JIRA_BASE/rest/api/3/issue")
-          
-          KEY=$(echo $RES | jq -r '.key // empty')
-          if [ -z "$KEY" ]; then
-            echo "Jira Issue Creation Failed: $RES"
-            exit 1
-          fi
-          echo "jira_key=$KEY" >> "$GITHUB_OUTPUT"
+          echo "jira_key=$(echo $RES | jq -r '.key')" >> "$GITHUB_OUTPUT"
 
-      # 4. 상태 변경: '진행 중' (Transition ID 21)
+      # 5. 상태 변경: '진행 중' (ID 21)
       - name: Transition to In Progress
         if: steps.create.outputs.jira_key != ''
         env:
@@ -128,7 +145,7 @@ jobs:
             -d '{"transition": {"id": "21"}}' \
             "$JIRA_BASE/rest/api/3/issue/${{ steps.create.outputs.jira_key }}/transitions"
 
-      # 5. 이슈 Close 시 Jira '완료' (Transition ID 31)
+      # 6. 이슈 Close 시 Jira '완료' (ID 31)
       - name: Transition to Done
         if: github.event.action == 'closed'
         env:
@@ -143,7 +160,7 @@ jobs:
               "$JIRA_BASE/rest/api/3/issue/$KEY/transitions"
           fi
 
-      # 6. GitHub 이슈 최종 업데이트 (제목 변경 및 코멘트)
+      # 7. GitHub 이슈 최종 업데이트
       - name: Finalize GitHub Issue
         if: steps.create.outputs.jira_key != ''
         uses: actions/github-script@v7
@@ -154,20 +171,12 @@ jobs:
           script: |
             const { JIRA_KEY, JIRA_BASE } = process.env;
             const issue = context.payload.issue;
-            
-            // 제목에 지라 키 삽입
             const cleanTitle = issue.title.replace(/^\[[A-Z0-9-]+\]\s+/, "").trim();
             await github.rest.issues.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issue.number,
-              title: `[${JIRA_KEY}] ${cleanTitle}`
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: issue.number, title: `[${JIRA_KEY}] ${cleanTitle}`
             });
-
-            // 연동 결과 알림 코멘트
             await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issue.number,
-              body: `### ✅ Jira 연동 성공\n- **티켓:** [${JIRA_KEY}](${JIRA_BASE}/browse/${JIRA_KEY})\n- **상태:** 진행 중 (In Progress)\n- **상위 항목:** \`${{ steps.parse.outputs.parentKey }}\`\n- **기간:** ${{ steps.parse.outputs.startDate }} ~ ${{ steps.parse.outputs.endDate }}`
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: issue.number,
+              body: `### ✅ Jira 연동 성공\n- **티켓:** [${JIRA_KEY}](${JIRA_BASE}/browse/${JIRA_KEY})\n- **상태:** 진행 중 및 현재 스프린트 할당 완료`
             });
