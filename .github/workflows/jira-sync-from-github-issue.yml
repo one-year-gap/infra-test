@@ -233,6 +233,7 @@ jobs:
           BRANCH_NAME: ${{ steps.create_branch.outputs.branch_name }}
         with:
           script: |
+            const { JIRA_KEY, JIRA_BASE, BRANCH_NAME } = process.env;
             const { JIRA_KEY, JIRA_BASE } = process.env;
             const issue = context.payload.issue;
             const cleanTitle = issue.title.replace(/^\[[A-Z0-9-]+\]\s+/, "").trim();
