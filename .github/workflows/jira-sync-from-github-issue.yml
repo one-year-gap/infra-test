@@ -15,7 +15,6 @@ on:
             "✨ feat": "스토리",
             "🐛 fix": "버그",
             "🚑 hotfix": "버그",
-
             "🧪 spike": "작업",
             "✅ test": "작업",
             "♻️ refactor": "작업",
@@ -103,8 +102,7 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const labels = (context.payload.issue.labels || [])
-              .map(l => typeof l === "string" ? l : l.name);
+            const labels = (context.payload.issue.labels || []).map(l => typeof l === "string" ? l : l.name);
 
             const TYPE = [
               "✨ feat","🐛 fix","♻️ refactor","🎨 style","✅ test","📕 docs","🧹 chore","🔧 config","📦 deps",
@@ -143,6 +141,7 @@ jobs:
               issue_number: context.payload.issue.number,
               body: `필수 라벨이 누락되었습니다: ${MISSING}\n\n- type, area, priority 라벨을 모두 추가해주세요.`
             });
+
             if (CLOSE_FLAG === 'true') {
               await github.rest.issues.update({
                 owner: context.repo.owner,
@@ -160,19 +159,16 @@ jobs:
           JIRA_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           JIRA_BASE: ${{ secrets.JIRA_BASE_URL }}
           PROJ: ${{ inputs.jira_project_key }}
-
           TYPE_LABEL: ${{ steps.pick.outputs.type }}
           AREA_LABEL: ${{ steps.pick.outputs.area }}
           PRIORITY_LABEL: ${{ steps.pick.outputs.priority }}
-
           TYPE_MAP: ${{ inputs.issue_type_map_json }}
           PRIO_MAP: ${{ inputs.priority_map_json }}
           COMP_MAP: ${{ inputs.component_map_json }}
         run: |
           set -euo pipefail
 
-          curl -sS -u "$JIRA_EMAIL:$JIRA_TOKEN" \
-            "$JIRA_BASE/rest/api/3/project/$PROJ" > proj.json
+          curl -sS -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_BASE/rest/api/3/project/$PROJ" > proj.json
 
           TYPE_NAME=$(echo "$TYPE_MAP" | jq -r --arg k "$TYPE_LABEL" '.[$k] // "작업"')
           TYPE_ID=$(jq -r --arg n "$TYPE_NAME" '.issueTypes[] | select(.name==$n) | .id' proj.json | head -n 1)
@@ -189,8 +185,7 @@ jobs:
             exit 1
           fi
 
-          curl -sS -u "$JIRA_EMAIL:$JIRA_TOKEN" \
-            "$JIRA_BASE/rest/api/3/priority" > priorities.json
+          curl -sS -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_BASE/rest/api/3/priority" > priorities.json
 
           PRIO_NAME=$(echo "$PRIO_MAP" | jq -r --arg k "$PRIORITY_LABEL" '.[$k] // empty')
           PRIO_ID=$(jq -r --arg n "$PRIO_NAME" '.[] | select(.name==$n) | .id' priorities.json | head -n 1)
@@ -205,8 +200,7 @@ jobs:
           fi
 
           COMP_NAME=$(echo "$COMP_MAP" | jq -r --arg k "$AREA_LABEL" '.[$k] // empty')
-          curl -sS -u "$JIRA_EMAIL:$JIRA_TOKEN" \
-            "$JIRA_BASE/rest/api/3/project/$PROJ/components" > components.json
+          curl -sS -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_BASE/rest/api/3/project/$PROJ/components" > components.json
 
           COMP_ID=$(jq -r --arg n "$COMP_NAME" '.[] | select(.name==$n) | .id' components.json | head -n 1)
           if [ -z "${COMP_ID:-}" ] || [ "$COMP_ID" = "null" ]; then
@@ -225,11 +219,9 @@ jobs:
           JIRA_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           JIRA_BASE: ${{ secrets.JIRA_BASE_URL }}
           PROJ: ${{ inputs.jira_project_key }}
-
           GH_TITLE: ${{ github.event.issue.title }}
           GH_BODY: ${{ github.event.issue.body }}
           GH_URL: ${{ github.event.issue.html_url }}
-
           TYPE_ID: ${{ steps.jira_meta.outputs.type_id }}
           PRIO_ID: ${{ steps.jira_meta.outputs.priority_id }}
           COMP_ID: ${{ steps.jira_meta.outputs.component_id }}
@@ -321,9 +313,7 @@ jobs:
             };
 
             const prefix = typeToPrefix[TYPE_LABEL];
-            if (!prefix) {
-              throw new Error(`type label not found or unmapped: ${TYPE_LABEL}`);
-            }
+            if (!prefix) throw new Error(`type label not found or unmapped: ${TYPE_LABEL}`);
 
             const rawTitle = issue.title || "";
             const withoutJira = rawTitle.replace(/^\[[A-Z][A-Z0-9_]+-\d+\]\s+/, "");
@@ -352,7 +342,7 @@ jobs:
               labels: [LABEL]
             });
 
-      - name: Create branch <type>/<JIRA_KEY>
+      - name: "Create branch <type>/<JIRA_KEY>"
         if: steps.guard.outputs.skip != 'true' && steps.create.outputs.jira_key != ''
         uses: actions/github-script@v7
         env:
@@ -390,40 +380,38 @@ jobs:
             const type = typeToPrefix[typeLabel];
             if (!type) throw new Error(`type label unmapped: ${typeLabel}`);
 
-            const branchName = `${type}/${jiraKey}`;              // ✅ <type>/티켓번호
-            const getRefArg = `heads/${branchName}`;              // GET은 refs/ 없이
-            const createRefArg = `refs/heads/${branchName}`;      // CREATE는 refs/ 포함
+            const branchName = `${type}/${jiraKey}`;
+            const getRef = `heads/${branchName}`;         // getRef는 "heads/..." 형식
+            const createRef = `refs/heads/${branchName}`; // createRef는 "refs/heads/..." 형식
 
-          
+           
             try {
-              await github.rest.git.getRef({ owner, repo, ref: getRefArg });
+              await github.rest.git.getRef({ owner, repo, ref: getRef });
               core.info(`Branch already exists: ${branchName}`);
               return;
             } catch (e) {
               if (e.status !== 404) throw e;
             }
 
-            
+      
             const repoInfo = await github.rest.repos.get({ owner, repo });
             const defaultBranch = repoInfo.data.default_branch;
 
-            const base = await github.rest.repos.getBranch({
-              owner, repo, branch: defaultBranch
-            });
-
+            const base = await github.rest.repos.getBranch({ owner, repo, branch: defaultBranch });
             const sha = base.data.commit.sha;
 
             await github.rest.git.createRef({
               owner,
               repo,
-              ref: createRefArg,
+              ref: createRef,
               sha
             });
 
             core.info(`Created branch: ${branchName}`);
 
-    
             await github.rest.issues.createComment({
-               owner, repo, issue_number: context.payload.issue.number,
-               body: `🌿 브랜치 생성됨: \`${branchName}\` (base: ${defaultBranch})`
-             });
+              owner,
+              repo,
+              issue_number: context.payload.issue.number,
+              body: `🌿 브랜치 생성됨: \`${branchName}\` (base: ${defaultBranch})`
+            });
