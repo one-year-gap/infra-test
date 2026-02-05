@@ -6,11 +6,10 @@ on:
       jira_project_key:
         type: string
         required: true
-      # Jira의 '시작 날짜' 필드 ID는 환경마다 다르므로 변수화 (보통 customfield_10015)
       jira_start_date_field:
         type: string
         required: false
-        default: "customfield_10015"
+        default: "customfield_10015" # Jira 시작 날짜 필드 ID
     secrets:
       JIRA_BASE_URL:
         required: true
@@ -27,7 +26,7 @@ jobs:
       contents: write
 
     steps:
-      # 1. 이슈 본문 파싱: 정규표현식을 사용하여 템플릿의 데이터를 추출합니다.
+      # 1. 이슈 본문 파싱 (상위 티켓, 날짜, 라벨 데이터 추출)
       - name: Parse Issue Body
         id: parse
         uses: actions/github-script@v7
@@ -40,38 +39,36 @@ jobs:
               return match ? match[1].trim() : "";
             };
 
-            const parentKey = extract('🎟️ 상위 작업 \\(Ticket Number\\)');
-            const startDate = extract('📅 시작 날짜');
-            const endDate = extract('🏁 종료 날짜');
-            const type = extract('Type \\(필수\\)');
-            const area = extract('Area \\(필수\\)');
-            const priority = extract('Priority \\(필수\\)');
+            core.setOutput('parentKey', extract('🎟️ 상위 작업 \\(Ticket Number\\)'));
+            core.setOutput('startDate', extract('📅 시작 날짜'));
+            core.setOutput('endDate', extract('🏁 종료 날짜'));
+            core.setOutput('type', extract('Type \\(필수\\)'));
+            core.setOutput('area', extract('Area \\(필수\\)'));
+            core.setOutput('priority', extract('Priority \\(필수\\)'));
 
-            core.setOutput('parentKey', parentKey);
-            core.setOutput('startDate', startDate);
-            core.setOutput('endDate', endDate);
-            core.setOutput('type', type);
-            core.setOutput('area', area);
-            core.setOutput('priority', priority);
-
-      # 2. 깃허브 라벨 자동 부착: 이슈 생성 시 선택한 태그를 실제 GitHub 라벨로 등록합니다.
+      # 2. 자동 라벨링 (ReferenceError 수정됨)
       - name: Auto-Labeling GitHub Issue
-        if: github.event.action == 'opened'
+        if: github.event.action == 'opened' || github.event.action == 'reopened'
         uses: actions/github-script@v7
+        env:
+          ISSUE_TYPE: ${{ steps.parse.outputs.type }}
+          ISSUE_AREA: ${{ steps.parse.outputs.area }}
+          ISSUE_PRIO: ${{ steps.parse.outputs.priority }}
         with:
           script: |
-            const { type, area, priority } = steps.parse.outputs;
-            const labels = [type, area, priority].filter(l => l && l !== '선택하세요');
-            if (labels.length > 0) {
+            const { ISSUE_TYPE, ISSUE_AREA, ISSUE_PRIO } = process.env;
+            const labelsToAdd = [ISSUE_TYPE, ISSUE_AREA, ISSUE_PRIO].filter(l => l && l !== '선택하세요');
+            
+            if (labelsToAdd.length > 0) {
               await github.rest.issues.addLabels({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.payload.issue.number,
-                labels: labels
+                labels: labelsToAdd
               });
             }
 
-      # 3. Jira 티켓 생성 (상위 항목 & 날짜 반영)
+      # 3. Jira 티켓 생성 (상위 항목 연결 + 타임라인 반영)
       - name: Create Jira Issue
         id: create
         if: github.event.action == 'opened' || github.event.action == 'reopened'
@@ -81,15 +78,14 @@ jobs:
           JIRA_BASE: ${{ secrets.JIRA_BASE_URL }}
           START_FIELD: ${{ inputs.jira_start_date_field }}
         run: |
-          # 맵핑: 템플릿의 이모지 포함 타입을 Jira 타입 명칭으로 변환
+          # Type 맵핑
           case "${{ steps.parse.outputs.type }}" in
             "✨ feat") JIRA_TYPE="스토리" ;;
             "🐛 fix" | "🚑 hotfix") JIRA_TYPE="버그" ;;
             *) JIRA_TYPE="작업" ;;
           esac
 
-          # JSON 페이로드 빌드
-          # parent: 상위 티켓 연결 / duedate: 종료일 / customfield: 시작일
+          # Payload 생성 (jq를 사용하여 안전하게 구성)
           PAYLOAD=$(jq -n \
             --arg proj "${{ inputs.jira_project_key }}" \
             --arg type "$JIRA_TYPE" \
@@ -112,9 +108,15 @@ jobs:
             }' | jq 'del(.fields.parent | select(. == null))')
 
           RES=$(curl -s -u "$JIRA_EMAIL:$JIRA_TOKEN" -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$JIRA_BASE/rest/api/3/issue")
-          echo "jira_key=$(echo $RES | jq -r '.key')" >> "$GITHUB_OUTPUT"
+          
+          KEY=$(echo $RES | jq -r '.key // empty')
+          if [ -z "$KEY" ]; then
+            echo "Jira Issue Creation Failed: $RES"
+            exit 1
+          fi
+          echo "jira_key=$KEY" >> "$GITHUB_OUTPUT"
 
-      # 4. Jira 상태 변경: 생성 직후 '진행 중'으로 변경
+      # 4. 상태 변경: '진행 중' (Transition ID 21)
       - name: Transition to In Progress
         if: steps.create.outputs.jira_key != ''
         env:
@@ -122,12 +124,11 @@ jobs:
           JIRA_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           JIRA_BASE: ${{ secrets.JIRA_BASE_URL }}
         run: |
-          # '진행 중' 트랜지션 ID (보통 21, 프로젝트 설정에 따라 확인 필요)
           curl -s -u "$JIRA_EMAIL:$JIRA_TOKEN" -X POST -H "Content-Type: application/json" \
             -d '{"transition": {"id": "21"}}' \
             "$JIRA_BASE/rest/api/3/issue/${{ steps.create.outputs.jira_key }}/transitions"
 
-      # 5. 이슈 Close 시 Jira '완료' 처리
+      # 5. 이슈 Close 시 Jira '완료' (Transition ID 31)
       - name: Transition to Done
         if: github.event.action == 'closed'
         env:
@@ -135,32 +136,38 @@ jobs:
           JIRA_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
           JIRA_BASE: ${{ secrets.JIRA_BASE_URL }}
         run: |
-          # 제목에서 [PROJ-123] 형태의 키 추출
           KEY=$(echo "${{ github.event.issue.title }}" | grep -oE '[A-Z0-9]+-[0-9]+' | head -1)
-          if [ -z "$KEY" ]; then exit 0; fi
-          
-          # '완료' 트랜지션 ID (보통 31)
-          curl -s -u "$JIRA_EMAIL:$JIRA_TOKEN" -X POST -H "Content-Type: application/json" \
-            -d '{"transition": {"id": "31"}}' \
-            "$JIRA_BASE/rest/api/3/issue/$KEY/transitions"
+          if [ -n "$KEY" ]; then
+            curl -s -u "$JIRA_EMAIL:$JIRA_TOKEN" -X POST -H "Content-Type: application/json" \
+              -d '{"transition": {"id": "31"}}' \
+              "$JIRA_BASE/rest/api/3/issue/$KEY/transitions"
+          fi
 
-      # 6. GitHub 이슈 정보 업데이트 (제목에 키 삽입 및 코멘트)
-      - name: Update GitHub Issue
+      # 6. GitHub 이슈 최종 업데이트 (제목 변경 및 코멘트)
+      - name: Finalize GitHub Issue
         if: steps.create.outputs.jira_key != ''
         uses: actions/github-script@v7
+        env:
+          JIRA_KEY: ${{ steps.create.outputs.jira_key }}
+          JIRA_BASE: ${{ secrets.JIRA_BASE_URL }}
         with:
           script: |
-            const key = "${{ steps.create.outputs.jira_key }}";
-            const currentTitle = context.payload.issue.title;
+            const { JIRA_KEY, JIRA_BASE } = process.env;
+            const issue = context.payload.issue;
+            
+            // 제목에 지라 키 삽입
+            const cleanTitle = issue.title.replace(/^\[[A-Z0-9-]+\]\s+/, "").trim();
             await github.rest.issues.update({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.payload.issue.number,
-              title: `[${key}] ${currentTitle}`
+              issue_number: issue.number,
+              title: `[${JIRA_KEY}] ${cleanTitle}`
             });
+
+            // 연동 결과 알림 코멘트
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.payload.issue.number,
-              body: `✅ Jira 티켓 생성 및 연동 완료: [${key}](${{ secrets.JIRA_BASE_URL }}/browse/${key})\n- 상태: 진행 중 (In Progress)\n- 타임라인: ${{ steps.parse.outputs.startDate }} ~ ${{ steps.parse.outputs.endDate }}`
+              issue_number: issue.number,
+              body: `### ✅ Jira 연동 성공\n- **티켓:** [${JIRA_KEY}](${JIRA_BASE}/browse/${JIRA_KEY})\n- **상태:** 진행 중 (In Progress)\n- **상위 항목:** \`${{ steps.parse.outputs.parentKey }}\`\n- **기간:** ${{ steps.parse.outputs.startDate }} ~ ${{ steps.parse.outputs.endDate }}`
             });
