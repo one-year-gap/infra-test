@@ -1,0 +1,229 @@
+name: jira-sync-from-gh-issue
+
+on:
+  workflow_call:
+    inputs:
+      jira_project_key:
+        type: string
+        required: true
+      issue_type_map_json:
+        type: string
+        required: false
+        default: '{"✨ feat": "Story", "🐛 fix": "Bug", "🚑 hotfix": "Bug", "🧪 spike": "Task"}'
+      priority_map_json:
+        type: string
+        required: false
+        default: '{"🔥 priority: P0": "Highest", "⚠️ priority: P1": "High", "📝 priority: P2": "Medium", "🧊 priority: P3": "Low"}'
+      component_map_json:
+        type: string
+        required: false
+        default: '{"🗂️ area: BE": "BE", "🖥️ area: FE": "FE", "🗄️ area: DB": "DB", "☁️ area: INFRA": "INFRA", "🔐 area: AUTH": "AUTH"}'
+      github_linked_label:
+        type: string
+        required: false
+        default: "🔗 jira-linked"
+      close_on_missing_required_labels:
+        type: boolean
+        required: false
+        default: true
+
+    secrets:
+      JIRA_BASE_URL:
+        required: true
+      JIRA_EMAIL:
+        required: true
+      JIRA_API_TOKEN:
+        required: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+
+    steps:
+      - name: Guard - skip if already has Jira key in title or jira-linked label
+        id: guard
+        uses: actions/github-script@v7
+        env:
+          LINKED_LABEL: ${{ inputs.github_linked_label }}
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const title = issue.title || "";
+            const labels = (issue.labels || []).map(l => (typeof l === "string" ? l : l.name));
+            const hasKey = /\[[A-Z][A-Z0-9_]+-\d+\]/.test(title);
+            const hasLinkedLabel = labels.includes(process.env.LINKED_LABEL);
+            core.setOutput("skip", (hasKey || hasLinkedLabel) ? "true" : "false");
+
+      - name: Extract type/area/priority labels
+        id: pick
+        if: steps.guard.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = (context.payload.issue.labels || []).map(l => (typeof l === "string" ? l : l.name));
+            const TYPE = ["✨ feat","🐛 fix","♻️ refactor","🎨 style","✅ test","📕 docs","🧹 chore","🔧 config","📦 deps","🏗️ build","🚀 deploy","🏷️ release","🚑 hotfix","🛡️ security","⚡ perf","🧪 spike"];
+            const AREA = ["🗂️ area: BE","🖥️ area: FE","🗄️ area: DB","☁️ area: INFRA","🔐 area: AUTH"];
+            const PRIORITY = ["🔥 priority: P0","⚠️ priority: P1","📝 priority: P2","🧊 priority: P3"];
+
+            const type = labels.find(l => TYPE.includes(l)) || "";
+            const area = labels.find(l => AREA.includes(l)) || "";
+            const priority = labels.find(l => PRIORITY.includes(l)) || "";
+
+            core.setOutput("type", type);
+            core.setOutput("area", area);
+            core.setOutput("priority", priority);
+
+            const missing = [];
+            if (!type) missing.push("type");
+            if (!area) missing.push("area");
+            if (!priority) missing.push("priority");
+            core.setOutput("missing", missing.join(","));
+
+      - name: Enforce required labels
+        if: steps.guard.outputs.skip != 'true' && steps.pick.outputs.missing != ''
+        uses: actions/github-script@v7
+        env:
+          MISSING: ${{ steps.pick.outputs.missing }}
+          CLOSE_FLAG: ${{ inputs.close_on_missing_required_labels }}
+        with:
+          script: |
+            const { MISSING, CLOSE_FLAG } = process.env;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              body: `필수 라벨이 누락되었습니다: ${MISSING}\n\n- type, area, priority 라벨을 모두 추가해주세요.`
+            });
+            if (CLOSE_FLAG === 'true') {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.issue.number,
+                state: "closed"
+              });
+            }
+
+      - name: Resolve Jira Meta
+        if: steps.guard.outputs.skip != 'true' && steps.pick.outputs.missing == ''
+        id: jira_meta
+        env:
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_BASE: ${{ secrets.JIRA_BASE_URL }}
+          PROJ: ${{ inputs.jira_project_key }}
+          TYPE_LABEL: ${{ steps.pick.outputs.type }}
+          AREA_LABEL: ${{ steps.pick.outputs.area }}
+          PRIORITY_LABEL: ${{ steps.pick.outputs.priority }}
+          TYPE_MAP: ${{ inputs.issue_type_map_json }}
+          PRIO_MAP: ${{ inputs.priority_map_json }}
+          COMP_MAP: ${{ inputs.component_map_json }}
+        run: |
+          # 1. Project Info (IssueType ID)
+          curl -sS -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_BASE/rest/api/3/project/$PROJ" > proj.json
+          TYPE_NAME=$(echo "$TYPE_MAP" | jq -r --arg k "$TYPE_LABEL" '.[$k] // "Task"')
+          TYPE_ID=$(jq -r --arg n "$TYPE_NAME" '.issueTypes[] | select(.name==$n) | .id' proj.json | head -n 1)
+
+          # 2. Priority ID
+          curl -sS -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_BASE/rest/api/3/priority" > priorities.json
+          PRIO_NAME=$(echo "$PRIO_MAP" | jq -r --arg k "$PRIORITY_LABEL" '.[$k]')
+          PRIO_ID=$(jq -r --arg n "$PRIO_NAME" '.[] | select(.name==$n) | .id' priorities.json | head -n 1)
+
+          # 3. Component ID
+          COMP_NAME=$(echo "$COMP_MAP" | jq -r --arg k "$AREA_LABEL" '.[$k]')
+          curl -sS -u "$JIRA_EMAIL:$JIRA_TOKEN" "$JIRA_BASE/rest/api/3/project/$PROJ/components" > components.json
+          COMP_ID=$(jq -r --arg n "$COMP_NAME" '.[] | select(.name==$n) | .id' components.json | head -n 1)
+
+          echo "type_id=$TYPE_ID" >> $GITHUB_OUTPUT
+          echo "priority_id=$PRIO_ID" >> $GITHUB_OUTPUT
+          echo "component_id=${COMP_ID:-null}" >> $GITHUB_OUTPUT
+
+      - name: Create Jira issue
+        if: steps.guard.outputs.skip != 'true' && steps.pick.outputs.missing == ''
+        id: create
+        env:
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_BASE: ${{ secrets.JIRA_BASE_URL }}
+          GH_TITLE: ${{ github.event.issue.title }}
+          GH_BODY: ${{ github.event.issue.body }}
+          GH_URL: ${{ github.event.issue.html_url }}
+          PROJ: ${{ inputs.jira_project_key }}
+          TYPE_ID: ${{ steps.jira_meta.outputs.type_id }}
+          PRIO_ID: ${{ steps.jira_meta.outputs.priority_id }}
+          COMP_ID: ${{ steps.jira_meta.outputs.component_id }}
+        run: |
+          # JQ를 사용하여 JSON 페이로드 생성 (문자열 이스케이프 자동 처리)
+          DESC="GitHub Issue: $GH_URL\n\n$GH_BODY"
+          
+          # Payload build
+          jq -n \
+            --arg proj "$PROJ" \
+            --arg tid "$TYPE_ID" \
+            --arg pid "$PRIO_ID" \
+            --arg sum "$GH_TITLE" \
+            --arg desc "$DESC" \
+            --arg cid "$COMP_ID" \
+            '{
+              fields: {
+                project: { key: $proj },
+                issuetype: { id: $tid },
+                priority: { id: $pid },
+                summary: $sum,
+                description: {
+                  type: "doc",
+                  version: 1,
+                  content: [{
+                    type: "paragraph",
+                    content: [{ type: "text", text: $desc }]
+                  }]
+                }
+              }
+            }' > payload.json
+
+          # Component가 있을 경우 추가
+          if [ "$COMP_ID" != "null" ]; then
+            jq '.fields.components = [{id: $id}]' --arg id "$COMP_ID" payload.json > tmp.json && mv tmp.json payload.json
+          fi
+
+          res=$(curl -sS -u "$JIRA_EMAIL:$JIRA_TOKEN" -X POST \
+            -H "Content-Type: application/json" \
+            -d @payload.json "$JIRA_BASE/rest/api/3/issue")
+          
+          JIRA_KEY=$(echo "$res" | jq -r '.key')
+          echo "jira_key=$JIRA_KEY" >> $GITHUB_OUTPUT
+
+      - name: Update GitHub Issue
+        if: steps.guard.outputs.skip != 'true' && steps.create.outputs.jira_key != ''
+        uses: actions/github-script@v7
+        env:
+          JIRA_KEY: ${{ steps.create.outputs.jira_key }}
+          JIRA_BASE: ${{ secrets.JIRA_BASE_URL }}
+          LABEL: ${{ inputs.github_linked_label }}
+        with:
+          script: |
+            const { JIRA_KEY, JIRA_BASE, LABEL } = process.env;
+            const issue = context.payload.issue;
+
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              title: `[${JIRA_KEY}] ${issue.title}`
+            });
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: `✅ Jira 티켓 생성됨: [${JIRA_KEY}](${JIRA_BASE}/browse/${JIRA_KEY})`
+            });
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: [LABEL]
+            });
