@@ -114,11 +114,11 @@ jobs:
             *) JIRA_TYPE="작업" ;;
           esac
           case "$TEAM_NAME" in
-            "Customer Team") TEAM_ID="여기에_UUID_입력" ;;
-            "Counselor Team") TEAM_ID="여기에_UUID_입력" ;;
-            "Admin Team") TEAM_ID="여기에_UUID_입력" ;;
-            "Infra Team") TEAM_ID="여기에_UUID_입력" ;;
-            "Auth Team") TEAM_ID="여기에_UUID_입력" ;;
+            "Customer Team") TEAM_ID="f394bb25-56b9-41e0-b4da-7ae0c1cbbe19" ;;
+            "Counselor Team") TEAM_ID="646fca13-0bcc-4061-978a-3d6c91c0dc80" ;;
+            "Admin Team") TEAM_ID="31fa7d97-fd21-4428-a7b1-ce4b849a19c7" ;;
+            "Infra Team") TEAM_ID="b8a5960c-ab7e-4f66-a48b-9fe9fe4d1a31" ;;
+            "Auth Team") TEAM_ID="84b2225f-0e11-410b-b416-672cc2e7b3f2" ;;
             *) TEAM_ID="null" ;;
           esac
           
