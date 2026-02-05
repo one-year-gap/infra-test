@@ -194,6 +194,13 @@ jobs:
           
           JIRA_KEY=$(echo "$res" | jq -r '.key')
           echo "jira_key=$JIRA_KEY" >> $GITHUB_OUTPUT
+          
+          if [ "$JIRA_KEY" = "null" ] || [ -z "$JIRA_KEY" ]; then
+            echo "❌ Jira issue creation failed"
+            echo "$res" | jq .
+            exit 1
+          fi
+    
 
       - name: Update GitHub Issue
         if: steps.guard.outputs.skip != 'true' && steps.create.outputs.jira_key != ''
