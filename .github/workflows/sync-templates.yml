@@ -34,10 +34,10 @@ jobs:
               
               await github.rest.repos.createOrUpdateFileContents({
                 owner, repo,
-                path: '.github/ISSUE_TEMPLATE/bug-or-feature.yml',
+                path: '.github/ISSUE_TEMPLATE/issue-form.yml',
                 message: 'chore: sync issue template from infra',
                 content: Buffer.from(issueTemplate).toString('base64'),
-                sha: await getSha(owner, repo, '.github/ISSUE_TEMPLATE/issue_form.yml')
+                sha: await getSha(owner, repo, '.github/ISSUE_TEMPLATE/issue-form.yml')
               });
 
               
