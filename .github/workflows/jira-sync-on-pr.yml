@@ -200,71 +200,104 @@ jobs:
             AREA_EMOJI="🏗️"
           fi
 
-          PAYLOAD=$(cat <<EOF
-          {
-            "attachments": [
-              {
-                "color": "${COLOR}",
-                "blocks": [
-                  {
-                    "type": "header",
-                    "text": {
-                      "type": "plain_text",
-                      "text": "🚀 New Pull Request Opened!",
-                      "emoji": true
-                    }
-                  },
-                  {
-                    "type": "section",
-                    "text": {
-                      "type": "mrkdwn",
-                      "text": "*<${PR_URL}|${PR_TITLE}>*"
-                    }
-                  },
-                  { "type": "divider" },
-                  {
-                    "type": "section",
-                    "fields": [
-                      { "type": "mrkdwn", "text": "👤 *Author*\n${AUTHOR}" },
-                      { "type": "mrkdwn", "text": "📦 *Repository*\n\`${REPO}\`" }
-                    ]
-                  },
-                  {
-                    "type": "section",
-                    "fields": [
-                      { "type": "mrkdwn", "text": "${TYPE_EMOJI} *Type*\n\`${TYPE_LABEL:-N/A}\`" },
-                      { "type": "mrkdwn", "text": "${AREA_EMOJI} *Area*\n\`${AREA_LABEL:-N/A}\`" }
-                    ]
-                  },
-                  {
-                    "type": "section",
-                    "fields": [
-                      { "type": "mrkdwn", "text": "⚡ *Priority*\n\`${PRIORITY_LABEL:-N/A}\`" },
-                      { "type": "mrkdwn", "text": "🎫 *JIRA*\n${JIRA_KEY:+<https://your-domain.atlassian.net/browse/${JIRA_KEY}|${JIRA_KEY}>}" }
-                    ]
-                  },
-                  { "type": "divider" },
-                  {
-                    "type": "actions",
-                    "elements": [
-                      {
-                        "type": "button",
-                        "text": { "type": "plain_text", "text": "👀 View PR", "emoji": true },
-                        "url": "${PR_URL}",
-                        "style": "primary"
+       
+          PAYLOAD=$(jq -n \
+            --arg color "$COLOR" \
+            --arg pr_url "$PR_URL" \
+            --arg pr_title "$PR_TITLE" \
+            --arg author "$AUTHOR" \
+            --arg repo "$REPO" \
+            --arg type_emoji "$TYPE_EMOJI" \
+            --arg type_label "${TYPE_LABEL:-N/A}" \
+            --arg area_emoji "$AREA_EMOJI" \
+            --arg area_label "${AREA_LABEL:-N/A}" \
+            --arg priority "${PRIORITY_LABEL:-N/A}" \
+            --arg jira "$JIRA_LINK" \
+            '{
+              attachments: [
+                {
+                  color: $color,
+                  blocks: [
+                    {
+                      type: "header",
+                      text: {
+                        type: "plain_text",
+                        text: "🚀 New Pull Request Opened!",
+                        emoji: true
                       }
-                    ]
-                  },
-                  {
-                    "type": "mrkdwn",
-                    "text": "🎫 *JIRA*\n${JIRA_KEY:+<${JIRA_DOMAIN}/browse/${JIRA_KEY}|${JIRA_KEY}>}"
-                  }
-                ]
-              }
-            ]
-          }
-          EOF
-          )
+                    },
+                    {
+                      type: "section",
+                      text: {
+                        type: "mrkdwn",
+                        text: ("*<" + $pr_url + "|" + $pr_title + ">*")
+                      }
+                    },
+                    {
+                      type: "divider"
+                    },
+                    {
+                      type: "section",
+                      fields: [
+                        {
+                          type: "mrkdwn",
+                          text: ("👤 *Author*\n" + $author)
+                        },
+                        {
+                          type: "mrkdwn",
+                          text: ("📦 *Repository*\n`" + $repo + "`")
+                        }
+                      ]
+                    },
+                    {
+                      type: "section",
+                      fields: [
+                        {
+                          type: "mrkdwn",
+                          text: ($type_emoji + " *Type*\n`" + $type_label + "`")
+                        },
+                        {
+                          type: "mrkdwn",
+                          text: ($area_emoji + " *Area*\n`" + $area_label + "`")
+                        }
+                      ]
+                    },
+                    {
+                      type: "section",
+                      fields: [
+                        {
+                          type: "mrkdwn",
+                          text: ("⚡ *Priority*\n`" + $priority + "`")
+                        },
+                        {
+                          type: "mrkdwn",
+                          text: ("🎫 *JIRA*\n" + $jira)
+                        }
+                      ]
+                    },
+                    {
+                      type: "divider"
+                    },
+                    {
+                      type: "actions",
+                      elements: [
+                        {
+                          type: "button",
+                          text: {
+                            type: "plain_text",
+                            text: "👀 View PR",
+                            emoji: true
+                          },
+                          url: $pr_url,
+                          style: "primary"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }')
+
 
 
           declare -a TARGETS=()
