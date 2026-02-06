@@ -148,6 +148,7 @@ jobs:
           JIRA_KEY: ${{ steps.meta.outputs.jira_key }}
           SLACK_WEBHOOK_BE: ${{ secrets.SLACK_WEBHOOK_BE }}
           SLACK_WEBHOOK_FE: ${{ secrets.SLACK_WEBHOOK_FE }}
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
           SLACK_WEBHOOK_INFRA: ${{ secrets.SLACK_WEBHOOK_INFRA }}
           SLACK_WEBHOOK_DEFAULT: ${{ secrets.SLACK_WEBHOOK_DEFAULT }}
         run: |
