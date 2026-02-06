@@ -5,11 +5,17 @@ on:
       JIRA_BASE_URL: { required: true }
       JIRA_EMAIL: { required: true }
       JIRA_API_TOKEN: { required: true }
+
+      SLACK_WEBHOOK_BE: { required: false }
+      SLACK_WEBHOOK_FE: { required: false }
+      SLACK_WEBHOOK_INFRA: { required: false }
+      SLACK_WEBHOOK_DEFAULT: { required: false }
+      
 jobs:
   pr-sync:
     runs-on: ubuntu-latest
     permissions:
-      issues: read
+      issues: write
       pull-requests: write
       contents: read
     steps:
@@ -113,6 +119,53 @@ jobs:
               title: newTitle
             });
 
+      # 4. Slack Alarm
+      - name: Notify Slack (route by area label)
+        if: github.event.action == 'opened'
+        env:
+          AREA_LABEL: ${{ steps.sync_labels.outputs.area_label }}
+          TYPE_LABEL: ${{ steps.sync_labels.outputs.type_label }}
+          PRIORITY_LABEL: ${{ steps.sync_labels.outputs.priority_label }}
+          JIRA_KEY: ${{ steps.meta.outputs.jira_key }}
+
+          SLACK_WEBHOOK_BE: ${{ secrets.SLACK_WEBHOOK_BE }}
+          SLACK_WEBHOOK_FE: ${{ secrets.SLACK_WEBHOOK_FE }}
+          SLACK_WEBHOOK_INFRA: ${{ secrets.SLACK_WEBHOOK_INFRA }}
+          SLACK_WEBHOOK_DEFAULT: ${{ secrets.SLACK_WEBHOOK_DEFAULT }}
+        run: |
+          set -euo pipefail
+
+          # Webhook 없으면 Slack 스킵
+          if [ -z "${SLACK_WEBHOOK_DEFAULT:-}" ] && [ -z "${SLACK_WEBHOOK_BE:-}" ] && [ -z "${SLACK_WEBHOOK_FE:-}" ] && [ -z "${SLACK_WEBHOOK_INFRA:-}" ]; then
+            echo "No Slack webhook configured. Skip."
+            exit 0
+          fi
+
+          WEBHOOK="${SLACK_WEBHOOK_DEFAULT:-}"
+
+          if [[ "${AREA_LABEL:-}" == *"INFRA"* ]] && [ -n "${SLACK_WEBHOOK_INFRA:-}" ]; then
+            WEBHOOK="$SLACK_WEBHOOK_INFRA"
+          elif [[ "${AREA_LABEL:-}" == *"BE"* ]] && [ -n "${SLACK_WEBHOOK_BE:-}" ]; then
+            WEBHOOK="$SLACK_WEBHOOK_BE"
+          elif [[ "${AREA_LABEL:-}" == *"FE"* ]] && [ -n "${SLACK_WEBHOOK_FE:-}" ]; then
+            WEBHOOK="$SLACK_WEBHOOK_FE"
+          fi
+
+          if [ -z "${WEBHOOK:-}" ]; then
+            echo "No Slack webhook resolved. Skip."
+            exit 0
+          fi
+
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          REPO="${{ github.repository }}"
+          AUTHOR="${{ github.event.pull_request.user.login }}"
+
+          TEXT="*PR Opened*  (${REPO})\n• ${PR_TITLE}\n• ${PR_URL}\n• author: ${AUTHOR}\n• type: ${TYPE_LABEL:-}\n• area: ${AREA_LABEL:-}\n• priority: ${PRIORITY_LABEL:-}\n• jira: ${JIRA_KEY:-}"
+
+          payload=$(jq -n --arg text "$TEXT" '{text:$text}')
+          curl -sS -X POST -H 'Content-type: application/json' --data "$payload" "$WEBHOOK"
+          
       - name: Transition Jira to Done
         if: github.event.pull_request.merged == true && steps.meta.outputs.jira_key != ''
         env:
