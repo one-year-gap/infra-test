@@ -30,7 +30,7 @@ jobs:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            
+
             const pr = context.payload.pull_request;
             if (!pr) {
               core.info("Not a pull_request event. Skipping.");
@@ -40,13 +40,13 @@ jobs:
             const allowedTypes = JSON.parse(process.env.ALLOWED_TYPES_JSON);
             const ticketRe = new RegExp(process.env.TICKET_PATTERN);
 
-      
             const headRef = pr.head.ref; // ex) feat/HSC-2
             const m = headRef.match(/^([a-z]+)\/([A-Z]+-\d+)$/);
             if (!m) {
               core.setFailed(`브랜치명 규칙 위반: "${headRef}" (필수: <type>/<TICKET>, 예: feat/HSC-2)`);
               return;
             }
+
             const type = m[1];
             const ticket = m[2];
 
@@ -60,8 +60,8 @@ jobs:
             }
 
             core.info(`Branch OK: type=${type}, ticket=${ticket}`);
+            const expectedPrefix = `${type}/${ticket}: `;
 
-            const expectedPrefix = `${type}/[${ticket}]: `;
             const commits = await github.paginate(
               github.rest.pulls.listCommits,
               { owner, repo, pull_number: pr.number, per_page: 100 }
