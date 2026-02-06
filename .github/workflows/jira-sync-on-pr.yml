@@ -325,12 +325,28 @@ jobs:
           fi
 
           
-          if [[ "${AREA_LABEL:-}" == *"area: BE"* ]] && [ -n "${SLACK_WEBHOOK_BE:-}" ]; then
-            TARGETS+=("${SLACK_WEBHOOK_BE}")
-          elif [[ "${AREA_LABEL:-}" == *"area: FE"* ]] && [ -n "${SLACK_WEBHOOK_FE:-}" ]; then
-            TARGETS+=("${SLACK_WEBHOOK_FE}")
-          elif [[ "${AREA_LABEL:-}" == *"area: INFRA"* ]] && [ -n "${SLACK_WEBHOOK_INFRA:-}" ]; then
-            TARGETS+=("${SLACK_WEBHOOK_INFRA}")
+          if [[ "${AREA_LABEL:-}" == *"area: BE"* ]] || \
+             [[ "${AREA_LABEL:-}" == *"area: INFRA"* ]] || \
+             [[ "${AREA_LABEL:-}" == *"area: DB"* ]] || \
+             [[ "${AREA_LABEL:-}" == *"area: AUTH"* ]]; then
+            if [ -n "${SLACK_WEBHOOK_BE:-}" ]; then
+              TARGETS+=("${SLACK_WEBHOOK_BE}")
+            fi
+          
+          elif [[ "${AREA_LABEL:-}" == *"area: FE"* ]]; then
+            if [ -n "${SLACK_WEBHOOK_FE:-}" ]; then
+              TARGETS+=("${SLACK_WEBHOOK_FE}")
+            fi
+          fi
+
+    
+          if [ ${#TARGETS[@]} -eq 0 ]; then
+            for w in "${SLACK_WEBHOOK_BE:-}" "${SLACK_WEBHOOK_FE:-}" "${SLACK_WEBHOOK_INFRA:-}"; do
+              if [ -n "$w" ]; then
+                TARGETS+=("$w")
+                break
+              fi
+            done
           fi
 
         
