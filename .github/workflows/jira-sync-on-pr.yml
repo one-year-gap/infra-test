@@ -1,17 +1,24 @@
 name: jira-sync-on-pr
+
 on:
   workflow_call:
     secrets:
-      JIRA_BASE_URL: { required: true }
-      JIRA_EMAIL: { required: true }
-      JIRA_API_TOKEN: { required: true }
+      JIRA_BASE_URL:
+        required: true
+      JIRA_EMAIL:
+        required: true
+      JIRA_API_TOKEN:
+        required: true
 
-      SLACK_WEBHOOK_BE: { required: false }
-      SLACK_WEBHOOK_FE: { required: false }
-      SLACK_WEBHOOK_INFRA: { required: false }
-      SLACK_WEBHOOK_DEFAULT: {required: false}
+      SLACK_WEBHOOK_BE:
+        required: false
+      SLACK_WEBHOOK_FE:
+        required: false
+      SLACK_WEBHOOK_INFRA:
+        required: false
+      SLACK_WEBHOOK_DEFAULT:
+        required: false
 
-      
 jobs:
   pr-sync:
     runs-on: ubuntu-latest
@@ -19,37 +26,39 @@ jobs:
       issues: write
       pull-requests: write
       contents: read
+
     steps:
-      # 1. PR 본문에서 데이터 추출
+      # 1) PR 본문에서 데이터 추출
       - name: Extract Metadata
         id: meta
         uses: actions/github-script@v7
         with:
           script: |
-            const body = context.payload.pull_request.body || ""; 
+            const body = context.payload.pull_request.body || "";
             const jiraKey = body.match(/[A-Z][A-Z0-9]+-[0-9]+/)?.[0];
             const issueNumber = body.match(/closes\s+#(\d+)/i)?.[1];
+
             core.setOutput('jira_key', jiraKey || '');
             core.setOutput('issue_number', issueNumber || '');
-     
+
       - name: Sync Labels from Issue
         id: sync_labels
         if: github.event.action == 'opened' && steps.meta.outputs.issue_number != ''
         uses: actions/github-script@v7
         with:
           script: |
-            const issue_number = parseInt("${{ steps.meta.outputs.issue_number }}");
-            
+            const issue_number = parseInt("${{ steps.meta.outputs.issue_number }}", 10);
+
             const issue = await github.rest.issues.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: issue_number
+              issue_number
             });
-            
+
             const labels = issue.data.labels.map(l => typeof l === 'string' ? l : l.name);
-            
-            const typeLabel = labels.find(l => 
-              l.startsWith('✨') || l.startsWith('🐛') || l.startsWith('🚑') || 
+
+            const typeLabel = labels.find(l =>
+              l.startsWith('✨') || l.startsWith('🐛') || l.startsWith('🚑') ||
               l.startsWith('♻️') || l.startsWith('🎨') || l.startsWith('✅') ||
               l.startsWith('📕') || l.startsWith('🧹') || l.startsWith('🔧') ||
               l.startsWith('📦') || l.startsWith('🏗️') || l.startsWith('🚀') ||
@@ -57,9 +66,8 @@ jobs:
               l.startsWith('🧪') || l.startsWith('🔄') || l.startsWith('🗑️') ||
               l.startsWith('🔖')
             );
-            
-            core.setOutput('type_label', typeLabel || '');
-            const areaLabel = labels.find(l => 
+
+            const areaLabel = labels.find(l =>
               l.includes('BE') || l.includes('FE') || l.includes('INFRA')
             );
 
@@ -67,20 +75,20 @@ jobs:
               l.startsWith('P0') || l.startsWith('P1') || l.startsWith('P2')
             );
 
-            
+            core.setOutput('type_label', typeLabel || '');
             core.setOutput('area_label', areaLabel || '');
             core.setOutput('priority_label', priorityLabel || '');
-            
+
             if (labels.length > 0) {
               await github.rest.issues.addLabels({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.payload.pull_request.number,
-                labels: labels
+                labels
               });
             }
 
-      # 2. PR 제목에 [티켓번호] <type>: 자동 추가
+      # 2) PR 제목에 [티켓번호] <type>: 자동 추가
       - name: Update PR Title
         if: github.event.action == 'opened' && steps.meta.outputs.jira_key != ''
         uses: actions/github-script@v7
@@ -91,7 +99,7 @@ jobs:
           script: |
             const { JIRA_KEY, TYPE_LABEL } = process.env;
             const pr = context.payload.pull_request;
-            
+
             const typeMap = {
               "✨ feat": "feat",
               "🐛 fix": "fix",
@@ -113,17 +121,16 @@ jobs:
               "🗑️ remove": "remove",
               "🔖 init": "init"
             };
-            
+
             const commitType = typeMap[TYPE_LABEL] || "task";
-            
-            let cleanTitle = pr.title
+
+            const cleanTitle = pr.title
               .replace(/^\[[A-Z0-9-]+\]\s*/, "")
               .replace(/^(feat|fix|hotfix|refactor|style|test|docs|chore|config|deps|build|deploy|release|security|perf|spike|rename|remove|init|task):\s*/i, "")
               .trim();
-            
-        
+
             const newTitle = `[${JIRA_KEY}] ${commitType}: ${cleanTitle}`;
-            
+
             await github.rest.pulls.update({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -131,15 +138,14 @@ jobs:
               title: newTitle
             });
 
-      # 4. Slack Alarm
-      - name: Notify Slack (route by area label)
+      # 3) Slack Alarm
+      - name: Notify Slack (All Channels)
         if: github.event.action == 'opened'
         env:
           AREA_LABEL: ${{ steps.sync_labels.outputs.area_label }}
           TYPE_LABEL: ${{ steps.sync_labels.outputs.type_label }}
           PRIORITY_LABEL: ${{ steps.sync_labels.outputs.priority_label }}
           JIRA_KEY: ${{ steps.meta.outputs.jira_key }}
-
           SLACK_WEBHOOK_BE: ${{ secrets.SLACK_WEBHOOK_BE }}
           SLACK_WEBHOOK_FE: ${{ secrets.SLACK_WEBHOOK_FE }}
           SLACK_WEBHOOK_INFRA: ${{ secrets.SLACK_WEBHOOK_INFRA }}
@@ -147,36 +153,154 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ -z "${SLACK_WEBHOOK_DEFAULT:-}" ] && [ -z "${SLACK_WEBHOOK_BE:-}" ] && [ -z "${SLACK_WEBHOOK_FE:-}" ] && [ -z "${SLACK_WEBHOOK_INFRA:-}" ]; then
-            echo "No Slack webhook configured. Skip."
-            exit 0
-          fi
-
-          WEBHOOK="${SLACK_WEBHOOK_DEFAULT:-}"
-
-          if [[ "${AREA_LABEL:-}" == *"INFRA"* ]] && [ -n "${SLACK_WEBHOOK_INFRA:-}" ]; then
-            WEBHOOK="$SLACK_WEBHOOK_INFRA"
-          elif [[ "${AREA_LABEL:-}" == *"BE"* ]] && [ -n "${SLACK_WEBHOOK_BE:-}" ]; then
-            WEBHOOK="$SLACK_WEBHOOK_BE"
-          elif [[ "${AREA_LABEL:-}" == *"FE"* ]] && [ -n "${SLACK_WEBHOOK_FE:-}" ]; then
-            WEBHOOK="$SLACK_WEBHOOK_FE"
-          fi
-
-          if [ -z "${WEBHOOK:-}" ]; then
-            echo "No Slack webhook resolved. Skip."
-            exit 0
-          fi
-
           PR_URL="${{ github.event.pull_request.html_url }}"
           PR_TITLE="${{ github.event.pull_request.title }}"
           REPO="${{ github.repository }}"
           AUTHOR="${{ github.event.pull_request.user.login }}"
+          JIRA_DOMAIN="${JIRA_BASE_URL}"
 
-          TEXT="*PR Opened*  (${REPO})\n• ${PR_TITLE}\n• ${PR_URL}\n• author: ${AUTHOR}\n• type: ${TYPE_LABEL:-}\n• area: ${AREA_LABEL:-}\n• priority: ${PRIORITY_LABEL:-}\n• jira: ${JIRA_KEY:-}"
 
-          payload=$(jq -n --arg text "$TEXT" '{text:$text}')
-          curl -sS -X POST -H 'Content-type: application/json' --data "$payload" "$WEBHOOK"
-          
+          COLOR="#36a64f"  
+          if [[ "${PRIORITY_LABEL:-}" == *"P0"* ]] || [[ "${PRIORITY_LABEL:-}" == *"p0"* ]]; then
+            COLOR="#ff0000"  
+          elif [[ "${PRIORITY_LABEL:-}" == *"P1"* ]] || [[ "${PRIORITY_LABEL:-}" == *"p1"* ]]; then
+            COLOR="#ff9500"  
+          elif [[ "${PRIORITY_LABEL:-}" == *"P2"* ]] || [[ "${PRIORITY_LABEL:-}" == *"p2"* ]]; then
+            COLOR="#ffcc00"
+          fi
+
+
+          TYPE_EMOJI="📝"
+          if [[ "${TYPE_LABEL:-}" == *"feat"* ]]; then
+            TYPE_EMOJI="✨"
+          elif [[ "${TYPE_LABEL:-}" == *"fix"* ]]; then
+            TYPE_EMOJI="🐛"
+          elif [[ "${TYPE_LABEL:-}" == *"hotfix"* ]]; then
+            TYPE_EMOJI="🚑"
+          elif [[ "${TYPE_LABEL:-}" == *"refactor"* ]]; then
+            TYPE_EMOJI="♻️"
+          elif [[ "${TYPE_LABEL:-}" == *"style"* ]]; then
+            TYPE_EMOJI="🎨"
+          elif [[ "${TYPE_LABEL:-}" == *"test"* ]]; then
+            TYPE_EMOJI="✅"
+          elif [[ "${TYPE_LABEL:-}" == *"docs"* ]]; then
+            TYPE_EMOJI="📕"
+          elif [[ "${TYPE_LABEL:-}" == *"chore"* ]]; then
+            TYPE_EMOJI="🧹"
+          fi
+
+   
+          AREA_EMOJI="💼"
+          if [[ "${AREA_LABEL:-}" == *"BE"* ]]; then
+            AREA_EMOJI="⚙️"
+          elif [[ "${AREA_LABEL:-}" == *"FE"* ]]; then
+            AREA_EMOJI="🎨"
+          elif [[ "${AREA_LABEL:-}" == *"INFRA"* ]]; then
+            AREA_EMOJI="🏗️"
+          fi
+
+          PAYLOAD=$(cat <<EOF
+          {
+            "attachments": [
+              {
+                "color": "${COLOR}",
+                "blocks": [
+                  {
+                    "type": "header",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "🚀 New Pull Request Opened!",
+                      "emoji": true
+                    }
+                  },
+                  {
+                    "type": "section",
+                    "text": {
+                      "type": "mrkdwn",
+                      "text": "*<${PR_URL}|${PR_TITLE}>*"
+                    }
+                  },
+                  { "type": "divider" },
+                  {
+                    "type": "section",
+                    "fields": [
+                      { "type": "mrkdwn", "text": "👤 *Author*\n${AUTHOR}" },
+                      { "type": "mrkdwn", "text": "📦 *Repository*\n\`${REPO}\`" }
+                    ]
+                  },
+                  {
+                    "type": "section",
+                    "fields": [
+                      { "type": "mrkdwn", "text": "${TYPE_EMOJI} *Type*\n\`${TYPE_LABEL:-N/A}\`" },
+                      { "type": "mrkdwn", "text": "${AREA_EMOJI} *Area*\n\`${AREA_LABEL:-N/A}\`" }
+                    ]
+                  },
+                  {
+                    "type": "section",
+                    "fields": [
+                      { "type": "mrkdwn", "text": "⚡ *Priority*\n\`${PRIORITY_LABEL:-N/A}\`" },
+                      { "type": "mrkdwn", "text": "🎫 *JIRA*\n${JIRA_KEY:+<https://your-domain.atlassian.net/browse/${JIRA_KEY}|${JIRA_KEY}>}" }
+                    ]
+                  },
+                  { "type": "divider" },
+                  {
+                    "type": "actions",
+                    "elements": [
+                      {
+                        "type": "button",
+                        "text": { "type": "plain_text", "text": "👀 View PR", "emoji": true },
+                        "url": "${PR_URL}",
+                        "style": "primary"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "mrkdwn",
+                    "text": "🎫 *JIRA*\n${JIRA_KEY:+<${JIRA_DOMAIN}/browse/${JIRA_KEY}|${JIRA_KEY}>}"
+                  }
+                ]
+              }
+            ]
+          }
+          EOF
+          )
+
+
+          declare -a TARGETS=()
+
+          if [ -n "${SLACK_WEBHOOK_DEFAULT:-}" ]; then
+            TARGETS+=("${SLACK_WEBHOOK_DEFAULT}")
+          fi
+
+          if [[ "${AREA_LABEL:-}" == *"BE"* ]] && [ -n "${SLACK_WEBHOOK_BE:-}" ]; then
+            TARGETS+=("${SLACK_WEBHOOK_BE}")
+          elif [[ "${AREA_LABEL:-}" == *"FE"* ]] && [ -n "${SLACK_WEBHOOK_FE:-}" ]; then
+            TARGETS+=("${SLACK_WEBHOOK_FE}")
+          elif [[ "${AREA_LABEL:-}" == *"INFRA"* ]] && [ -n "${SLACK_WEBHOOK_INFRA:-}" ]; then
+            TARGETS+=("${SLACK_WEBHOOK_INFRA}")
+          fi
+
+        
+          if [ ${#TARGETS[@]} -eq 0 ]; then
+            for w in "${SLACK_WEBHOOK_BE:-}" "${SLACK_WEBHOOK_FE:-}" "${SLACK_WEBHOOK_INFRA:-}"; do
+              if [ -n "$w" ]; then TARGETS+=("$w"); break; fi
+            done
+          fi
+
+          if [ ${#TARGETS[@]} -eq 0 ]; then
+            echo "No Slack webhooks configured. Skipping notification."
+            exit 0
+          fi
+
+        
+          uniq_targets=$(printf "%s\n" "${TARGETS[@]}" | awk '!seen[$0]++')
+          echo "$uniq_targets" | while read -r hook; do
+            echo "sending"
+            curl -sS -X POST -H 'Content-type: application/json' --data "$PAYLOAD" "$hook"
+          done
+
+          echo "Slack notifications sent successfully!"
+
       - name: Transition Jira to Done
         if: github.event.pull_request.merged == true && steps.meta.outputs.jira_key != ''
         env:
