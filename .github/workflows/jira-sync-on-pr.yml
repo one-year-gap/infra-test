@@ -9,7 +9,7 @@ on:
       SLACK_WEBHOOK_BE: { required: false }
       SLACK_WEBHOOK_FE: { required: false }
       SLACK_WEBHOOK_INFRA: { required: false }
-      SLACK_WEBHOOK_DEFAULT: { required: false }
+
       
 jobs:
   pr-sync:
