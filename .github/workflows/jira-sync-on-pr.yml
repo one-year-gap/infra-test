@@ -68,11 +68,18 @@ jobs:
             );
 
             const areaLabel = labels.find(l =>
-              l.includes('BE') || l.includes('FE') || l.includes('INFRA')
+              l.includes('area: BE') || 
+              l.includes('area: FE') || 
+              l.includes('area: INFRA') ||
+              l.includes('area: DB') ||
+              l.includes('area: AUTH')
             );
 
             const priorityLabel = labels.find(l =>
-              l.startsWith('P0') || l.startsWith('P1') || l.startsWith('P2')
+              l.includes('priority: P0') || 
+              l.includes('priority: P1') || 
+              l.includes('priority: P2') ||
+              l.includes('priority: P3')
             );
 
             core.setOutput('type_label', typeLabel || '');
@@ -161,13 +168,15 @@ jobs:
           JIRA_DOMAIN="${JIRA_BASE_URL}"
 
 
-          COLOR="#36a64f"  
-          if [[ "${PRIORITY_LABEL:-}" == *"P0"* ]] || [[ "${PRIORITY_LABEL:-}" == *"p0"* ]]; then
+          COLOR="#36a64f"
+          if [[ "${PRIORITY_LABEL:-}" == *"priority: P0"* ]]; then
             COLOR="#ff0000"  
-          elif [[ "${PRIORITY_LABEL:-}" == *"P1"* ]] || [[ "${PRIORITY_LABEL:-}" == *"p1"* ]]; then
+          elif [[ "${PRIORITY_LABEL:-}" == *"priority: P1"* ]]; then
             COLOR="#ff9500"  
-          elif [[ "${PRIORITY_LABEL:-}" == *"P2"* ]] || [[ "${PRIORITY_LABEL:-}" == *"p2"* ]]; then
-            COLOR="#ffcc00"
+          elif [[ "${PRIORITY_LABEL:-}" == *"priority: P2"* ]]; then
+            COLOR="#ffcc00"  
+          elif [[ "${PRIORITY_LABEL:-}" == *"priority: P3"* ]]; then
+            COLOR="#36a64f" 
           fi
 
 
@@ -192,12 +201,16 @@ jobs:
 
    
           AREA_EMOJI="💼"
-          if [[ "${AREA_LABEL:-}" == *"BE"* ]]; then
-            AREA_EMOJI="⚙️"
-          elif [[ "${AREA_LABEL:-}" == *"FE"* ]]; then
-            AREA_EMOJI="🎨"
-          elif [[ "${AREA_LABEL:-}" == *"INFRA"* ]]; then
-            AREA_EMOJI="🏗️"
+          if [[ "${AREA_LABEL:-}" == *"area: BE"* ]]; then
+          AREA_EMOJI="🗂️"
+          elif [[ "${AREA_LABEL:-}" == *"area: FE"* ]]; then
+          AREA_EMOJI="🖥️"
+          elif [[ "${AREA_LABEL:-}" == *"area: INFRA"* ]]; then
+          AREA_EMOJI="☁️"
+          elif [[ "${AREA_LABEL:-}" == *"area: DB"* ]]; then
+          AREA_EMOJI="🗄️"
+          elif [[ "${AREA_LABEL:-}" == *"area: AUTH"* ]]; then
+          AREA_EMOJI="🔐"
           fi
 
 
@@ -311,11 +324,12 @@ jobs:
             TARGETS+=("${SLACK_WEBHOOK_DEFAULT}")
           fi
 
-          if [[ "${AREA_LABEL:-}" == *"BE"* ]] && [ -n "${SLACK_WEBHOOK_BE:-}" ]; then
+          
+          if [[ "${AREA_LABEL:-}" == *"area: BE"* ]] && [ -n "${SLACK_WEBHOOK_BE:-}" ]; then
             TARGETS+=("${SLACK_WEBHOOK_BE}")
-          elif [[ "${AREA_LABEL:-}" == *"FE"* ]] && [ -n "${SLACK_WEBHOOK_FE:-}" ]; then
+          elif [[ "${AREA_LABEL:-}" == *"area: FE"* ]] && [ -n "${SLACK_WEBHOOK_FE:-}" ]; then
             TARGETS+=("${SLACK_WEBHOOK_FE}")
-          elif [[ "${AREA_LABEL:-}" == *"INFRA"* ]] && [ -n "${SLACK_WEBHOOK_INFRA:-}" ]; then
+          elif [[ "${AREA_LABEL:-}" == *"area: INFRA"* ]] && [ -n "${SLACK_WEBHOOK_INFRA:-}" ]; then
             TARGETS+=("${SLACK_WEBHOOK_INFRA}")
           fi
 
