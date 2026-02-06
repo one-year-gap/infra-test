@@ -200,7 +200,12 @@ jobs:
             AREA_EMOJI="🏗️"
           fi
 
-       
+
+          JIRA_LINK="N/A"
+          if [ -n "${JIRA_KEY:-}" ] && [ -n "${JIRA_BASE_URL:-}" ]; then
+            JIRA_LINK="<${JIRA_BASE_URL}/browse/${JIRA_KEY}|${JIRA_KEY}>"
+          fi
+          
           PAYLOAD=$(jq -n \
             --arg color "$COLOR" \
             --arg pr_url "$PR_URL" \
