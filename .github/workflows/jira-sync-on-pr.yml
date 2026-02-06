@@ -9,6 +9,7 @@ on:
       SLACK_WEBHOOK_BE: { required: false }
       SLACK_WEBHOOK_FE: { required: false }
       SLACK_WEBHOOK_INFRA: { required: false }
+      SLACK_WEBHOOK_DEFAULT: {required: false}
 
       
 jobs:
@@ -58,6 +59,17 @@ jobs:
             );
             
             core.setOutput('type_label', typeLabel || '');
+            const areaLabel = labels.find(l => 
+              l.includes('BE') || l.includes('FE') || l.includes('INFRA')
+            );
+
+            const priorityLabel = labels.find(l =>
+              l.startsWith('P0') || l.startsWith('P1') || l.startsWith('P2')
+            );
+
+            
+            core.setOutput('area_label', areaLabel || '');
+            core.setOutput('priority_label', priorityLabel || '');
             
             if (labels.length > 0) {
               await github.rest.issues.addLabels({
