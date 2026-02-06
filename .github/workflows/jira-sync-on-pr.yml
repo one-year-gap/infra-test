@@ -135,7 +135,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Webhook 없으면 Slack 스킵
           if [ -z "${SLACK_WEBHOOK_DEFAULT:-}" ] && [ -z "${SLACK_WEBHOOK_BE:-}" ] && [ -z "${SLACK_WEBHOOK_FE:-}" ] && [ -z "${SLACK_WEBHOOK_INFRA:-}" ]; then
             echo "No Slack webhook configured. Skip."
             exit 0
