@@ -68,7 +68,7 @@ jobs:
         with:
           distribution: temurin
           java-version: ${{ inputs.java-version }}
-          cache: gradle
+          #cache: gradle
 
       - name: Cache SonarCloud packages
         uses: actions/cache@v4
