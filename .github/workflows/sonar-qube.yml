@@ -15,6 +15,18 @@ on:
         type: string
         required: false
         default: "."
+      db-name:
+        type: string
+        required: false
+        default: "worker_test"
+      db-user:
+        type: string
+        required: false
+        default: "postgres"
+      db-password:
+        type: string
+        required: false
+        default: "postgres"
     secrets:
       SONAR_TOKEN:
         required: true
@@ -25,6 +37,21 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ${{ inputs.db-name }}
+          POSTGRES_USER: ${{ inputs.db-user }}
+          POSTGRES_PASSWORD: ${{ inputs.db-password }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ${{ inputs.db-user }} -d ${{ inputs.db-name }}"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
 
     defaults:
       run:
@@ -57,4 +84,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+          SPRING_PROFILES_ACTIVE: test
+          SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/${{ inputs.db-name }}
+          SPRING_DATASOURCE_USERNAME: ${{ inputs.db-user }}
+          SPRING_DATASOURCE_PASSWORD: ${{ inputs.db-password }}
+
+          SPRING_BATCH_JDBC_INITIALIZE_SCHEMA: always
         run: ./gradlew ${{ inputs.gradle-args }}
